@@ -1,0 +1,15 @@
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: "10.16.0.0/16"
+  Subnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: !Select [ "0", !Cidr [ !GetAtt VPC.CidrBlock, "16", "12"]]
+      VpcId: !Ref VPC
+  Subnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: !Select [ "1", !Cidr [ !GetAtt VPC.CidrBlock, "16", "12"]]
+      VpcId: !Ref VPC

@@ -1,0 +1,162 @@
+Resources:
+  MyApiGateway:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: BankerAPI
+      Description: An API for managing bankers
+      FailOnWarnings: 'true'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  BankerResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt MyApiGateway.RootResourceId
+      PathPart: banker
+      RestApiId: !Ref MyApiGateway
+
+  ListBankersResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt MyApiGateway.RootResourceId
+      PathPart: listBankers
+      RestApiId: !Ref MyApiGateway
+
+  BankerGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref BankerResource
+      RestApiId: !Ref MyApiGateway
+      Integration:
+        Type: MOCK
+
+  ListBankersGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ListBankersResource
+      RestApiId: !Ref MyApiGateway
+      Integration:
+        Type: MOCK
+
+  BankerTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: BankerTable
+      AttributeDefinitions:
+        - AttributeName: employeeID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: employeeID
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  CreateBankerFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.create
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamoDB = new AWS.DynamoDB.DocumentClient();
+
+          exports.handler = async (event) => {
+            try {
+              // Parse event body
+              const { firstName, lastName, employeeID, dateOfBirth, title, hireDate } = JSON.parse(event.body);
+            }
+
+            const banker = {
+              employeeID,
+              firstName,
+              lastName,
+              dateOfBirth,
+              title,
+              hireDate,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+
+            await DynamoDB.put({
+              TableName: process.env.DYNAMODB_TABLE,
+              Item: banker
+            }).promise();
+
+            return {
+              statusCode: 200,
+              body: JSON.stringify({ message: "Banker created successfully", banker }),
+            };
+          } catch (error) {
+            console.error(error);
+            return {
+              statusCode: 500,
+              body: JSON.stringify({ message: "Failed to create banker", error: error.message}),
+            }
+          }
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref BankerTable
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaDynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                Resource: !GetAtt BankerTable.Arn
+
+  BankerPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref BankerResource
+      RestApiId: !Ref MyApiGateway
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateBankerFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+
+  LambdaPermissionForAPIGateway:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CreateBankerFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*/*/*'
+    
+
+Outputs:
+  ApiGatewayURL:
+    Description: URL of the API Gateway
+    Value: !Sub 'https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod'
