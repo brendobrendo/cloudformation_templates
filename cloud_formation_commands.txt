@@ -1,0 +1,12 @@
+### PRINT OPEN STACKS (in the default region) ###
+aws cloudformation describe-stacks --profile profile-name
+
+### CREATE A STACK ###
+aws cloudformation create-stack --stack-name stackName --template-body file://file_name.yaml --profile profileName
+
+### LIST RESOURCES IN A STACK ###
+aws cloudformation describe-stack-resources --stack-name stackName --profile profileName
+
+### DELETE A STACK ###
+aws cloudformation delete-stack --stack-name stackName --profile profileName
+

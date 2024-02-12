@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Resources:
+  ListDogsAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'ListDogsAPI'
+      Description: 'An API to list dog names with mock data'
+
+  ListDogsResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResourceId
+      PathPart: listDogs
+
+  DogResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResouceId
+      PathPart: dog
+
+  CreateDogMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ResourceId: !Ref DogResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethoResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json
+
+  ListDogsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ResourceId: !Ref ListDogsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates: 
+              application/json: | 
+                ["Lucky", "Spot", "Bozeman"]
+        RequestTemplates: 
+          application/json: '{"statusCode": 200}'
+
+  ListDogsDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - ListDogsMethod
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      StageName: prod
+
+Outputs:
+  ListDogsAPIEndpoint:
+    Description: "Endpoint for ListDogs API"
+    Value: !Sub "https://${ListDogsAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/listDogs"

@@ -1,0 +1,59 @@
+Resources:
+  DogNamesTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: DogNames
+      AttributeDefinitions:
+        - AttributeName: Name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Name
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  DogNameLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt DogNamesTable.Arn
+  DogNameLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: DogNameWriter
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: !GetAtt DogNameLambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamoDB = new AWS.DynamoDB.DocumentClient();
+          exports.handler = async (event) => {
+            const dogName = event.dogName; // Assume dogName is passed
+            const params = {
+              TableName: 'DogNames',
+              Item: {
+                Name: dogName
+              }
+            };
+            try {
+              await dynamoDB.put(params).promise();
+              return { statusCode: 200, body: 'Dog name added successfully'};
+            } catch (error) {
+              console.error('Error adding dog name:', error);
+              return { statusCode: 500, body: 'Failed to add dog name' };
+            }
+          };

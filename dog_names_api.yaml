@@ -1,0 +1,140 @@
+Resources:
+  DogNamesTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: DogNames
+      AttributeDefinitions:
+        - AttributeName: Name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Name
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  
+  ListDogsAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'ListDogsAPI'
+      Description: 'An API to list dog names with mock data'
+
+  ListDogsResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResourceId
+      PathPart: listDogs
+
+  DogResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResourceId
+      PathPart: dog
+
+  CreateDogMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ResourceId: !Ref DogResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DogNameLambdaFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            'application/json': 'Empty'
+
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt DogNameLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'apigateway.amazonaws.com'
+
+  DogNameLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt DogNamesTable.Arn
+  
+  ListDogsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ResourceId: !Ref ListDogsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates: 
+              application/json: | 
+                ["Lucky", "Spot", "Bozeman"]
+        RequestTemplates: 
+          application/json: '{"statusCode": 200}'
+
+  ListDogsDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - ListDogsMethod
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      StageName: prod
+
+  DogNameLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: DogNameWriter
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: !GetAtt DogNameLambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const dynamoDB = new AWS.DynamoDB.DocumentClient();
+          exports.handler = async (event) => {
+            const requestBody = JSON.parse(event.body);
+            const dogName = requestBody.dogName; // Assume dogName is passed
+            const params = {
+              TableName: 'DogNames',
+              Item: {
+                Name: dogName
+              }
+            };
+            try {
+              await dynamoDB.put(params).promise();
+              return { statusCode: 200, body: 'Dog name added successfully'};
+            } catch (error) {
+              console.error('Error adding dog name:', error);
+              return { statusCode: 500, body: 'Failed to add dog name' };
+            }
+          };
+
+Outputs:
+  ListDogsAPIEndpoint:
+    Description: "Endpoint for ListDogs API"
+    Value: !Sub "https://${ListDogsAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/listDogs"
