@@ -13,6 +13,17 @@ Resources:
       CidrBlock: 10.0.1.0/24
       AvailabilityZone: !Select [0, !GetAZs '']
       MapPublicIpOnLaunch: false
+
+  SubnetRouteTableAssociationA:
+    Type: 'AWS::EC2::RouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MyPrivateSubnetA
+      RouteTableId: !Ref MyRouteTable
+  
+  MyRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref MyVPC
   
   MyPrivateSubnetB:
     Type: 'AWS::EC2::Subnet'
@@ -21,6 +32,19 @@ Resources:
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: !Select [1, !GetAZs '']
       MapPublicIpOnLaunch: false
+
+  SubnetRouteTableAssociationB:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MyPrivateSubnetB
+      RouteTableId: !Ref MyRouteTable
+
+  SecretsManagerVPCEndpointRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      VpcEndpointId: !Ref SecretsManagerVPCEndpoint
 
   DogNamesDBCluster:
     Type: 'AWS::RDS::DBCluster'
@@ -171,6 +195,16 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: arn:aws:s3:::brendan903auroracluster/function.zip
+        - PolicyName: LambdaVPCAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: '*'
   
   LambdaSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -181,7 +215,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroup: !Ref MyDBSecurityGroup
+          SourceSecurityGroupId: !Ref MyDBSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
