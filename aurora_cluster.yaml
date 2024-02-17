@@ -1,0 +1,222 @@
+Resources:
+  MyVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  MyPrivateSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+  
+  MyPrivateSubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  DogNamesDBCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      Engine: aurora-mysql
+      EngineMode: provisioned
+      DBClusterIdentifier: dog-names-cluster
+      MasterUsername: admin
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DogNamesDBClusterSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref MyDBSecurityGroup
+    
+  DogNamesDBClusterSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: DogNamesDBClusterSecret
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin", "engine": "aurora-mysql", "host": "${DogNamesDBCluster.Endpoint.Address}", "port": "3306", "dbClusterIdentifier": "dog-names-cluster"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+  SecretsManagerVPCEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref MyPrivateSubnetA
+        - !Ref MyPrivateSubnetB
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      PrivateDnsEnabled: true
+
+  DogNamesDBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: dog-names-instance
+      DBClusterIdentifier: !Ref DogNamesDBCluster
+      Engine: aurora-mysql
+      DBInstanceClass: db.r5.large
+
+  MyDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: 'Subnet Group for DogNamesDB'
+      SubnetIds:
+        - !Ref MyPrivateSubnetA
+        - !Ref MyPrivateSubnetB
+
+  MyDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Security Group for DogNamesDB'
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: 0.0.0.0/0
+
+  ListDogsAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'ListDogsAPI'
+      Description: 'An API to list dog names with mock data'
+
+  ListDogsResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResourceId
+      PathPart: listDogs
+
+  DogResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ParentId: !GetAtt ListDogsAPI.RootResourceId
+      PathPart: dog
+
+  CreateDogMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      ResourceId: !Ref DogResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DogNameLambdaFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+            method.response.header.Access-Control-Allow-Methods: "'OPTIONS, POST'"
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+          ResponseModels:
+            'application/json': 'Empty'
+
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt DogNameLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'apigateway.amazonaws.com'
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds-db:connect
+                  - secretsmanager:GetSecretValue
+                Resource: '*'
+        - PolicyName: CloudwatchPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+        - PolicyName: S3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: arn:aws:s3:::brendan903auroracluster/function.zip
+  
+  LambdaSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Security group for Lambda function'
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroup: !Ref MyDBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  DogNameLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: DogNameWriter
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      VpcConfig:
+        SubnetIds:
+          - !Ref MyPrivateSubnetA
+          - !Ref MyPrivateSubnetB
+        SecurityGroupIds:
+          - !GetAtt LambdaSecurityGroup.GroupId
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt DogNamesDBCluster.Endpoint.Address
+      Code:
+        S3Bucket: brendan903auroracluster
+        S3Key: function.zip
+      Timeout: 10
+
+  ListDogsDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - CreateDogMethod
+    Properties:
+      RestApiId: !Ref ListDogsAPI
+      StageName: prod
+
+Outputs:
+  # Outputs remain unchanged.
+  ListDogsAPIEndpoint:
+    Description: "Endpoint for ListDogs API"
+    Value: !Sub "https://${ListDogsAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/dog"
