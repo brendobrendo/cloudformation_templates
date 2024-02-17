@@ -41,6 +41,7 @@ Resources:
 
   SecretsManagerVPCEndpointRoute:
     Type: 'AWS::EC2::Route'
+    DependsOn: SecretsManagerVPCEndpoint
     Properties:
       RouteTableId: !Ref MyRouteTable
       DestinationCidrBlock: '0.0.0.0/0'
