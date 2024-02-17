@@ -15,7 +15,7 @@ Resources:
       MapPublicIpOnLaunch: false
 
   SubnetRouteTableAssociationA:
-    Type: 'AWS::EC2::RouteTableAssociation'
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref MyPrivateSubnetA
       RouteTableId: !Ref MyRouteTable
