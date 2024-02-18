@@ -1,10 +1,16 @@
 Resources:
+  # VPC
   MyVPC:
     Type: 'AWS::EC2::VPC'
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
+
+  MyRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref MyVPC
 
   MyPrivateSubnetA:
     Type: 'AWS::EC2::Subnet'
@@ -14,17 +20,6 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs '']
       MapPublicIpOnLaunch: false
 
-  SubnetRouteTableAssociationA:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      SubnetId: !Ref MyPrivateSubnetA
-      RouteTableId: !Ref MyRouteTable
-  
-  MyRouteTable:
-    Type: 'AWS::EC2::RouteTable'
-    Properties:
-      VpcId: !Ref MyVPC
-  
   MyPrivateSubnetB:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -32,6 +27,12 @@ Resources:
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: !Select [1, !GetAZs '']
       MapPublicIpOnLaunch: false
+
+  SubnetRouteTableAssociationA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MyPrivateSubnetA
+      RouteTableId: !Ref MyRouteTable
 
   SubnetRouteTableAssociationB:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
@@ -41,12 +42,14 @@ Resources:
 
   SecretsManagerVPCEndpointRoute:
     Type: 'AWS::EC2::Route'
-    DependsOn: SecretsManagerVPCEndpoint
+    DependsOn: 
+      - SecretsManagerVPCEndpoint
     Properties:
       RouteTableId: !Ref MyRouteTable
       DestinationCidrBlock: '0.0.0.0/0'
       VpcEndpointId: !Ref SecretsManagerVPCEndpoint
 
+  # DB
   DogNamesDBCluster:
     Type: 'AWS::RDS::DBCluster'
     Properties:
@@ -58,29 +61,6 @@ Resources:
       DBSubnetGroupName: !Ref MyDBSubnetGroup
       VpcSecurityGroupIds:
         - !Ref MyDBSecurityGroup
-    
-  DogNamesDBClusterSecret:
-    Type: 'AWS::SecretsManager::Secret'
-    Properties:
-      Name: DogNamesDBClusterSecret
-      GenerateSecretString:
-        SecretStringTemplate: '{"username": "admin", "engine": "aurora-mysql", "host": "${DogNamesDBCluster.Endpoint.Address}", "port": "3306", "dbClusterIdentifier": "dog-names-cluster"}'
-        GenerateStringKey: "password"
-        PasswordLength: 16
-        ExcludeCharacters: '"@/\'
-
-  SecretsManagerVPCEndpoint:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      VpcId: !Ref MyVPC
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref MyPrivateSubnetA
-        - !Ref MyPrivateSubnetB
-      SecurityGroupIds:
-        - !Ref LambdaSecurityGroup
-      PrivateDnsEnabled: true
 
   DogNamesDBInstance:
     Type: 'AWS::RDS::DBInstance'
@@ -108,7 +88,32 @@ Resources:
           FromPort: '3306'
           ToPort: '3306'
           CidrIp: 0.0.0.0/0
+    
+  #Secrets Manager
+  DogNamesDBClusterSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: DogNamesDBClusterSecret
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin", "engine": "aurora-mysql", "host": "${DogNamesDBCluster.Endpoint.Address}", "port": "3306", "dbClusterIdentifier": "dog-names-cluster"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
 
+  SecretsManagerVPCEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref MyPrivateSubnetA
+        - !Ref MyPrivateSubnetB
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      PrivateDnsEnabled: true
+
+  # API Gateway
   ListDogsAPI:
     Type: 'AWS::ApiGateway::RestApi'
     Properties:
@@ -151,6 +156,7 @@ Resources:
           ResponseModels:
             'application/json': 'Empty'
 
+  # Lambda
   LambdaInvokePermission:
     Type: 'AWS::Lambda::Permission'
     Properties:
