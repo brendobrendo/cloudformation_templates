@@ -7,6 +7,19 @@ Resources:
       EnableDnsSupport: true
       EnableDnsHostnames: true
 
+  SecretsManagerVPCEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref MyPrivateSubnetA
+        - !Ref MyPrivateSubnetB
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      PrivateDnsEnabled: true
+
   MyRouteTable:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -40,14 +53,14 @@ Resources:
       SubnetId: !Ref MyPrivateSubnetB
       RouteTableId: !Ref MyRouteTable
 
-  SecretsManagerVPCEndpointRoute:
-    Type: 'AWS::EC2::Route'
-    DependsOn: 
-      - SecretsManagerVPCEndpoint
-    Properties:
-      RouteTableId: !Ref MyRouteTable
-      DestinationCidrBlock: '0.0.0.0/0'
-      VpcEndpointId: !Ref SecretsManagerVPCEndpoint
+  # SecretsManagerVPCEndpointRoute:
+  #   Type: 'AWS::EC2::Route'
+  #   DependsOn: 
+  #     - SecretsManagerVPCEndpoint
+  #   Properties:
+  #     RouteTableId: !Ref MyRouteTable
+  #     DestinationCidrBlock: '0.0.0.0/0'
+  #     VpcEndpointId: !Ref SecretsManagerVPCEndpoint
 
   # DB
   DogNamesDBCluster:
@@ -99,19 +112,6 @@ Resources:
         GenerateStringKey: "password"
         PasswordLength: 16
         ExcludeCharacters: '"@/\'
-
-  SecretsManagerVPCEndpoint:
-    Type: 'AWS::EC2::VPCEndpoint'
-    Properties:
-      VpcId: !Ref MyVPC
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref MyPrivateSubnetA
-        - !Ref MyPrivateSubnetB
-      SecurityGroupIds:
-        - !Ref LambdaSecurityGroup
-      PrivateDnsEnabled: true
 
   # API Gateway
   ListDogsAPI:
@@ -231,7 +231,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: DogNameWriter
-      Runtime: nodejs16.x
+      Runtime: nodejs18.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       VpcConfig:
